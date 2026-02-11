@@ -255,7 +255,7 @@ export default function Home() {
               </button>
 
               <p style={{ fontSize: 14, opacity: 0.6 }}>
-                Press only AFTER you actually meeting 🙂
+                Press only AFTER your actual meeting 🙂
               </p>
             </>
           ) : (
