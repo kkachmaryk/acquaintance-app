@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -19,48 +20,39 @@ import {
 } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBgOBAT6dK5PnuRD-6XchHce2kwXd1TaSE",
-  authDomain: "rtapp-c795f.firebaseapp.com",
-  projectId: "rtapp-c795f",
-  storageBucket: "rtapp-c795f.firebasestorage.app",
-  messagingSenderId: "712624544807",
-  appId: "1:712624544807:web:a1e1afc696a59897ce4202",
+  apiKey: "YOUR_KEY",
+  authDomain: "YOUR_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_BUCKET",
+  messagingSenderId: "YOUR_ID",
+  appId: "YOUR_APP_ID",
 };
-
-// ✅ ТИ — АДМІН
-const ADMIN_EMAILS = ["khrystyna.kachmaryk@gmail.com"];
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-function buildPairs(users: any[]) {
-  const shuffled = [...users].sort(() => Math.random() - 0.5);
-  const pairs: any = {};
+const ADMIN_EMAIL = "khrystyna.kachmaryk@gmail.com";
 
-  for (let i = 0; i < shuffled.length - 1; i += 2) {
-    const a = shuffled[i];
-    const b = shuffled[i + 1];
-
-    pairs[a.id] = b;
-    pairs[b.id] = a;
-  }
-
-  return pairs;
+function getRandomUser(currentId: string, users: any[], met: string[]) {
+  const available = users.filter(
+    (u) => u.id !== currentId && !met.includes(u.id)
+  );
+  if (!available.length) return null;
+  return available[Math.floor(Math.random() * available.length)];
 }
 
 export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
-  const [pair, setPair] = useState<any>(null);
+  const [match, setMatch] = useState<any>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("123456");
-  const [name, setName] = useState("");
-  const [country, setCountry] = useState("");
 
-  const isAdmin = user && ADMIN_EMAILS.includes(user.email);
+  const [nameInput, setNameInput] = useState("");
+  const [countryInput, setCountryInput] = useState("");
 
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
@@ -73,7 +65,6 @@ export default function Home() {
 
       let currentProfile;
 
-      // ✅ автостворення профілю
       if (!snap.exists()) {
         currentProfile = {
           name: "",
@@ -90,22 +81,13 @@ export default function Home() {
 
       setProfile(currentProfile);
 
-      // ✅ всі користувачі
-      const allSnap = await getDocs(collection(db, "users"));
-      const allUsers: any[] = [];
-      allSnap.forEach((d) => {
-        allUsers.push({ id: d.id, ...d.data() });
-      });
+      const all = await getDocs(collection(db, "users"));
+      const arr: any[] = [];
+      all.forEach((d) => arr.push({ id: d.id, ...d.data() }));
+      setUsers(arr);
 
-      setUsers(allUsers);
-
-      // ✅ будуємо пари
-      const remaining = allUsers.filter(
-        (x) => !currentProfile.met.includes(x.id)
-      );
-
-      const pairs = buildPairs(remaining);
-      setPair(pairs[u.uid] || null);
+      const next = getRandomUser(u.uid, arr, currentProfile.met || []);
+      setMatch(next);
     });
   }, []);
 
@@ -113,38 +95,44 @@ export default function Home() {
     await signInWithEmailAndPassword(auth, email, password);
   };
 
-  const completeMeeting = async () => {
-    if (!pair) return;
+  const saveProfile = async () => {
+    const ref = doc(db, "users", user.uid);
 
-    const myRef = doc(db, "users", user.uid);
-    const otherRef = doc(db, "users", pair.id);
-
-    await updateDoc(myRef, {
-      completed: profile.completed + 1,
-      met: [...profile.met, pair.id],
-    });
-
-    await updateDoc(otherRef, {
-      completed: (pair.completed || 0) + 1,
-      met: [...(pair.met || []), user.uid],
-    });
-
-    setProfile({
+    const updated = {
       ...profile,
-      completed: profile.completed + 1,
-      met: [...profile.met, pair.id],
-    });
+      name: nameInput,
+      country: countryInput,
+    };
+
+    await updateDoc(ref, updated);
+    setProfile(updated);
   };
 
-  // 🔐 LOGIN
+  const completeMeeting = async () => {
+    if (!match) return;
+
+    const ref = doc(db, "users", user.uid);
+    const updatedMet = [...(profile.met || []), match.id];
+
+    const updated = {
+      ...profile,
+      completed: (profile.completed || 0) + 1,
+      met: updatedMet,
+    };
+
+    await updateDoc(ref, updated);
+    setProfile(updated);
+
+    const next = getRandomUser(user.uid, users, updatedMet);
+    setMatch(next);
+  };
+
+  // LOGIN SCREEN
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
-        <img 
-  src="/logo.png" 
-  alt="Logo" 
-  style={{ width: 120, marginBottom: 20 }} 
-/>
+        <Image src="/logo.png" alt="Logo" width={140} height={140} />
+
         <h1>Acquaintance App</h1>
 
         <input
@@ -166,66 +154,52 @@ export default function Home() {
     );
   }
 
-  // ✍️ FIRST LOGIN
-  if (profile && (!profile.name || !profile.country)) {
+  // FIRST TIME PROFILE
+  if (!profile?.name) {
     return (
       <div style={{ padding: 40 }}>
-        <h2>Welcome! Tell us about yourself 👇</h2>
+        <Image src="/logo.png" alt="Logo" width={140} height={140} />
+
+        <h2>Welcome! Tell us about yourself 🙂</h2>
 
         <input
-          placeholder="Your full name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          placeholder="Full name"
+          value={nameInput}
+          onChange={(e) => setNameInput(e.target.value)}
         />
         <br /><br />
 
         <input
-          placeholder="Your country"
-          value={country}
-          onChange={(e) => setCountry(e.target.value)}
+          placeholder="Country"
+          value={countryInput}
+          onChange={(e) => setCountryInput(e.target.value)}
         />
         <br /><br />
 
-        <button
-          onClick={async () => {
-            await updateDoc(doc(db, "users", user.uid), {
-              name,
-              country,
-            });
-
-            setProfile({
-              ...profile,
-              name,
-              country,
-            });
-          }}
-        >
-          Save
-        </button>
+        <button onClick={saveProfile}>Save</button>
       </div>
     );
   }
 
-  // 🤝 MAIN
+  // MAIN APP
   return (
     <div style={{ padding: 40 }}>
-     <h2>Welcome, {profile?.name}</h2>
-      <p>Country: {profile?.country}</p>
-      <p>Completed meetings: {profile?.completed}</p>
+      <Image src="/logo.png" alt="Logo" width={140} height={140} />
+
+      <h2>Welcome, {profile.name}</h2>
+      <p>Country: {profile.country}</p>
+      <p>Completed meetings: {profile.completed}</p>
 
       <button onClick={() => signOut(auth)}>Logout</button>
 
       <hr />
 
-      {pair ? (
+      {match ? (
         <div>
-          <h3>Your mutual pair:</h3>
-
-          <p>
-            <strong>{pair.name}</strong> ({pair.country})
-          </p>
-
-          <p>{pair.email}</p>
+          <h3>Your next person:</h3>
+          <p><strong>{match.name}</strong></p>
+          <p>{match.country}</p>
+          <p>{match.email}</p>
 
           <button onClick={completeMeeting}>
             We met ✅
@@ -235,21 +209,29 @@ export default function Home() {
         <h3>🎉 You met everyone!</h3>
       )}
 
-      {/* ✅ ADMIN PANEL */}
-      {isAdmin && (
+      <hr />
+
+      <h3>Leaderboard</h3>
+
+      {users
+        .slice()
+        .sort((a, b) => (b.completed || 0) - (a.completed || 0))
+        .map((u) => (
+          <div key={u.id}>
+            {u.name || "Unnamed"} — {u.completed || 0}
+          </div>
+        ))}
+
+      {user.email === ADMIN_EMAIL && (
         <>
           <hr />
-          <h2>🛠 Admin Panel</h2>
+          <h2>ADMIN PANEL</h2>
 
-          {users
-            .slice()
-            .sort((a, b) => b.completed - a.completed)
-            .map((u) => (
-              <div key={u.id}>
-                <strong>{u.name || u.email}</strong> — {u.completed} meetings
-                {u.completed === 0 && " 🚨"}
-              </div>
-            ))}
+          {users.map((u) => (
+            <div key={u.id}>
+              {u.name} — meetings: {u.completed || 0}
+            </div>
+          ))}
         </>
       )}
     </div>
