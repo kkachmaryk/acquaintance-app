@@ -26,7 +26,7 @@ const firebaseConfig = {
   storageBucket: "rtapp-c795f.firebasestorage.app",
   messagingSenderId: "712624544807",
   appId: "1:712624544807:web:a1e1afc696a59897ce4202",
-  measurementId: "G-6TW2BZ05Y9"
+  measurementId: "G-6TW2BZ05Y9",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -39,9 +39,7 @@ function getRandomUser(currentId: string, users: any[], met: string[]) {
   const available = users.filter(
     (u) => u.id !== currentId && !met.includes(u.id)
   );
-
   if (!available.length) return null;
-
   return available[Math.floor(Math.random() * available.length)];
 }
 
@@ -75,29 +73,51 @@ export default function Home() {
           email: u.email,
           completed: 0,
           met: [],
+          currentMatch: null,
         };
-
         await setDoc(ref, currentProfile);
       } else {
         currentProfile = snap.data();
       }
-
-      setProfile(currentProfile);
 
       const all = await getDocs(collection(db, "users"));
       const arr: any[] = [];
       all.forEach((d) => arr.push({ id: d.id, ...d.data() }));
       setUsers(arr);
 
-      const next = getRandomUser(u.uid, arr, currentProfile.met || []);
-      setMatch(next);
+      // 🔥 СТАБІЛЬНИЙ MATCH
+      let nextUser = null;
+
+      if (currentProfile.currentMatch) {
+        nextUser = arr.find(
+          (u) => u.id === currentProfile.currentMatch
+        );
+      }
+
+      if (!nextUser) {
+        nextUser = getRandomUser(
+          u.uid,
+          arr,
+          currentProfile.met || []
+        );
+
+        if (nextUser) {
+          await updateDoc(ref, {
+            currentMatch: nextUser.id,
+          });
+          currentProfile.currentMatch = nextUser.id;
+        }
+      }
+
+      setProfile(currentProfile);
+      setMatch(nextUser);
     });
   }, []);
 
   const login = async () => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
-    } catch (err) {
+    } catch {
       alert("Login failed. Check email or password.");
     }
   };
@@ -123,11 +143,8 @@ export default function Home() {
   const completeMeeting = async () => {
     if (!match) return;
 
-    const ok = confirm(
-      `Did you REALLY meet ${match.name}? 🙂`
-    );
-
-    if (!ok) return;
+    if (!confirm(`Did you REALLY meet ${match.name}? 🙂`))
+      return;
 
     const ref = doc(db, "users", user.uid);
 
@@ -137,16 +154,22 @@ export default function Home() {
       ...profile,
       completed: (profile.completed || 0) + 1,
       met: updatedMet,
+      currentMatch: null,
     };
 
     await updateDoc(ref, updated);
     setProfile(updated);
 
     const next = getRandomUser(user.uid, users, updatedMet);
+
+    if (next) {
+      await updateDoc(ref, { currentMatch: next.id });
+      updated.currentMatch = next.id;
+    }
+
     setMatch(next);
   };
 
-  // ⭐ UNDO
   const undoMeeting = async () => {
     if (!profile.met?.length) return;
 
@@ -156,36 +179,48 @@ export default function Home() {
 
     const updated = {
       ...profile,
-      completed: Math.max((profile.completed || 1) - 1, 0),
+      completed: Math.max(
+        (profile.completed || 1) - 1,
+        0
+      ),
       met: updatedMet,
+      currentMatch: null,
     };
 
     await updateDoc(ref, updated);
     setProfile(updated);
 
     const next = getRandomUser(user.uid, users, updatedMet);
+
+    if (next) {
+      await updateDoc(ref, { currentMatch: next.id });
+      updated.currentMatch = next.id;
+    }
+
     setMatch(next);
   };
 
-  // LOGIN
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
         <Image src="/logo.png" alt="Logo" width={140} height={140} />
-
         <h1>RT Meeting App</h1>
 
         <input
           placeholder="Email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) =>
+            setEmail(e.target.value)
+          }
         />
         <br /><br />
 
         <input
           placeholder="Password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) =>
+            setPassword(e.target.value)
+          }
         />
         <br /><br />
 
@@ -194,25 +229,27 @@ export default function Home() {
     );
   }
 
-  // FIRST TIME PROFILE
   if (!profile?.name) {
     return (
       <div style={{ padding: 40 }}>
         <Image src="/logo.png" alt="Logo" width={140} height={140} />
-
         <h2>Welcome 🙂 Tell us about yourself</h2>
 
         <input
           placeholder="Full name"
           value={nameInput}
-          onChange={(e) => setNameInput(e.target.value)}
+          onChange={(e) =>
+            setNameInput(e.target.value)
+          }
         />
         <br /><br />
 
         <input
           placeholder="Country"
           value={countryInput}
-          onChange={(e) => setCountryInput(e.target.value)}
+          onChange={(e) =>
+            setCountryInput(e.target.value)
+          }
         />
         <br /><br />
 
@@ -221,7 +258,6 @@ export default function Home() {
     );
   }
 
-  // MAIN APP
   return (
     <div style={{ padding: 40 }}>
       <Image src="/logo.png" alt="Logo" width={140} height={140} />
@@ -230,7 +266,9 @@ export default function Home() {
       <p>Country: {profile.country}</p>
       <p>Completed meetings: {profile.completed}</p>
 
-      <button onClick={() => signOut(auth)}>Logout</button>
+      <button onClick={() => signOut(auth)}>
+        Logout
+      </button>
 
       <hr />
 
@@ -264,10 +302,15 @@ export default function Home() {
 
       {users
         .slice()
-        .sort((a, b) => (b.completed || 0) - (a.completed || 0))
+        .sort(
+          (a, b) =>
+            (b.completed || 0) -
+            (a.completed || 0)
+        )
         .map((u) => (
           <div key={u.id}>
-            {u.name || "Unnamed"} — {u.completed || 0}
+            {u.name || "Unnamed"} —{" "}
+            {u.completed || 0}
           </div>
         ))}
 
@@ -278,7 +321,8 @@ export default function Home() {
 
           {users.map((u) => (
             <div key={u.id}>
-              {u.name} — meetings: {u.completed || 0}
+              {u.name} — meetings:{" "}
+              {u.completed || 0}
             </div>
           ))}
         </>
@@ -286,6 +330,3 @@ export default function Home() {
     </div>
   );
 }
-
-
-
