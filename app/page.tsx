@@ -140,6 +140,11 @@ export default function Home() {
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
+        <img 
+  src="/logo.png" 
+  alt="Logo" 
+  style={{ width: 120, marginBottom: 20 }} 
+/>
         <h1>Acquaintance App</h1>
 
         <input
