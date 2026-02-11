@@ -17,6 +17,7 @@ import {
   collection,
   getDocs,
   updateDoc,
+  arrayUnion,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -32,19 +33,55 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const ADMIN_EMAIL = "khrystyna.kachmaryk@gmail.com";
+function pickSmartMatch(
+  myId: string,
+  users: any[],
+  met: string[]
+) {
+  const available = users.filter(
+    (u) =>
+      u.id !== myId &&
+      !met.includes(u.id) &&
+      !(u.met || []).includes(myId) // 🔥 ключова перевірка
+  );
+
+  if (!available.length) return null;
+
+  return available[
+    Math.floor(Math.random() * available.length)
+  ];
+}
 
 export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
-  const [users, setUsers] = useState<any[]>([]);
-  const [pair, setPair] = useState<any>(null);
+  const [match, setMatch] = useState<any>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("123456");
 
   const [nameInput, setNameInput] = useState("");
   const [countryInput, setCountryInput] = useState("");
+
+  // 🔥 ГЕНЕРАЦІЯ MATCH
+  const generateMatch = async (uid: string, myMet: string[]) => {
+    const snapshot = await getDocs(collection(db, "users"));
+
+    const users: any[] = [];
+    snapshot.forEach((d) =>
+      users.push({ id: d.id, ...d.data() })
+    );
+
+    const smart = pickSmartMatch(uid, users, myMet);
+
+    if (!smart) return null;
+
+    await updateDoc(doc(db, "users", uid), {
+      currentMatch: smart.id,
+    });
+
+    return smart;
+  };
 
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
@@ -55,53 +92,63 @@ export default function Home() {
       const ref = doc(db, "users", u.uid);
       const snap = await getDoc(ref);
 
-      let currentProfile;
+      let data;
 
       if (!snap.exists()) {
-        currentProfile = {
+        data = {
           name: "",
           country: "",
           email: u.email,
+          met: [],
           completed: 0,
-          met: false,
-          pairId: null,
+          currentMatch: null,
         };
 
-        await setDoc(ref, currentProfile);
+        await setDoc(ref, data);
       } else {
-        currentProfile = snap.data();
+        data = snap.data();
       }
 
-      setProfile(currentProfile);
+      setProfile(data);
 
-      const all = await getDocs(collection(db, "users"));
-      const arr: any[] = [];
-      all.forEach((d) => arr.push({ id: d.id, ...d.data() }));
-      setUsers(arr);
-
-      if (currentProfile.pairId) {
-        const foundPair = arr.find(
-          (x) => x.id === currentProfile.pairId
+      // 🔥 якщо вже є match
+      if (data.currentMatch) {
+        const partner = await getDoc(
+          doc(db, "users", data.currentMatch)
         );
-        setPair(foundPair);
+
+        if (partner.exists()) {
+          setMatch({
+            id: partner.id,
+            ...partner.data(),
+          });
+          return;
+        }
       }
+
+      // 🔥 інакше генеруємо
+      const smart = await generateMatch(
+        u.uid,
+        data.met || []
+      );
+
+      setMatch(smart);
     });
   }, []);
 
   const login = async () => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
     } catch {
-      alert("Login failed. Check email/password.");
+      alert("Login failed");
     }
   };
 
   const saveProfile = async () => {
-    if (!nameInput || !countryInput) {
-      alert("Please fill all fields 🙂");
-      return;
-    }
-
     const ref = doc(db, "users", user.uid);
 
     const updated = {
@@ -114,62 +161,49 @@ export default function Home() {
     setProfile(updated);
   };
 
+  // 🔥 CONFIRM MEETING (двосторонній запис)
   const confirmMeeting = async () => {
-    if (!pair) return;
+    if (!match) return;
 
-    const ok = confirm(
-      `Did you REALLY meet ${pair.name} in person? 🙂`
-    );
+    if (!confirm(`Did you REALLY meet ${match.name}?`))
+      return;
 
-    if (!ok) return;
+    const myRef = doc(db, "users", user.uid);
+    const theirRef = doc(db, "users", match.id);
 
-    const ref = doc(db, "users", user.uid);
-
-    const updated = {
-      ...profile,
-      met: true,
+    // записуємо ОБОМ
+    await updateDoc(myRef, {
+      met: arrayUnion(match.id),
       completed: (profile.completed || 0) + 1,
-    };
+      currentMatch: null,
+    });
 
-    await updateDoc(ref, updated);
-    setProfile(updated);
-  };
+    await updateDoc(theirRef, {
+      met: arrayUnion(user.uid),
+    });
 
-  // 🔥 ADMIN — GENERATE PAIRS
-  const generatePairs = async () => {
-    if (!confirm("Generate NEW pairs?")) return;
+    const newMet = [...(profile.met || []), match.id];
 
-    const shuffled = [...users].sort(
-      () => Math.random() - 0.5
+    const next = await generateMatch(
+      user.uid,
+      newMet
     );
 
-    for (let i = 0; i < shuffled.length; i += 2) {
-      const a = shuffled[i];
-      const b = shuffled[i + 1];
+    setProfile({
+      ...profile,
+      met: newMet,
+      completed: (profile.completed || 0) + 1,
+      currentMatch: next?.id || null,
+    });
 
-      if (!b) break;
-
-      await updateDoc(doc(db, "users", a.id), {
-        pairId: b.id,
-        met: false,
-      });
-
-      await updateDoc(doc(db, "users", b.id), {
-        pairId: a.id,
-        met: false,
-      });
-    }
-
-    alert("🔥 Pairs generated!");
-    location.reload();
+    setMatch(next);
   };
 
-  // LOGIN SCREEN
+  // LOGIN
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
         <Image src="/logo.png" alt="Logo" width={140} height={140} />
-
         <h1>RT Meeting App</h1>
 
         <input
@@ -226,13 +260,12 @@ export default function Home() {
     );
   }
 
-  // MAIN APP
   return (
     <div style={{ padding: 40 }}>
       <Image src="/logo.png" alt="Logo" width={140} height={140} />
 
       <h2>Welcome, {profile.name}</h2>
-      <p>Meetings completed: {profile.completed || 0}</p>
+      <p>Meetings completed: {profile.completed}</p>
 
       <button onClick={() => signOut(auth)}>
         Logout
@@ -240,66 +273,24 @@ export default function Home() {
 
       <hr />
 
-      {pair ? (
+      {match ? (
         <div>
-          <h3>Your meeting partner:</h3>
+          <h3>Your next meeting partner:</h3>
 
-          <p><strong>{pair.name}</strong></p>
-          <p>{pair.country}</p>
-          <p>{pair.email}</p>
+          <p><strong>{match.name}</strong></p>
+          <p>{match.country}</p>
+          <p>{match.email}</p>
 
-          {!profile.met ? (
-            <>
-              <button onClick={confirmMeeting}>
-                ✅ Confirm meeting
-              </button>
-
-              <p style={{ fontSize: 14, opacity: 0.6 }}>
-                Press only AFTER your actual meeting 🙂
-              </p>
-            </>
-          ) : (
-            <h3>✅ Meeting confirmed!</h3>
-          )}
-        </div>
-      ) : (
-        <h3>Admin will assign your partner soon 🙂</h3>
-      )}
-
-      <hr />
-
-      <h3>Leaderboard</h3>
-
-      {users
-        .slice()
-        .sort(
-          (a, b) =>
-            (b.completed || 0) -
-            (a.completed || 0)
-        )
-        .map((u) => (
-          <div key={u.id}>
-            {u.name || "Unnamed"} —{" "}
-            {u.completed || 0}
-          </div>
-        ))}
-
-      {user.email === ADMIN_EMAIL && (
-        <>
-          <hr />
-          <h2>ADMIN PANEL</h2>
-
-          <button onClick={generatePairs}>
-            🔥 Generate pairs
+          <button onClick={confirmMeeting}>
+            ✅ Confirm meeting
           </button>
 
-          {users.map((u) => (
-            <div key={u.id}>
-              {u.name} — met:{" "}
-              {u.met ? "YES" : "NO"}
-            </div>
-          ))}
-        </>
+          <p style={{ fontSize: 14, opacity: 0.6 }}>
+            Press only AFTER you actually meet 🙂
+          </p>
+        </div>
+      ) : (
+        <h3>🎉 You met everyone!</h3>
       )}
     </div>
   );
