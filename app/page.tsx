@@ -20,12 +20,13 @@ import {
 } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "YOUR_KEY",
-  authDomain: "YOUR_DOMAIN",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_BUCKET",
-  messagingSenderId: "YOUR_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyBgOBAT6dK5PnuRD-6XchHce2kwXd1TaSE",
+  authDomain: "rtapp-c795f.firebaseapp.com",
+  projectId: "rtapp-c795f",
+  storageBucket: "rtapp-c795f.firebasestorage.app",
+  messagingSenderId: "712624544807",
+  appId: "1:712624544807:web:a1e1afc696a59897ce4202",
+  measurementId: "G-6TW2BZ05Y9"
 };
 
 const app = initializeApp(firebaseConfig);
