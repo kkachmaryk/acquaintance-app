@@ -133,7 +133,9 @@ export default function Home() {
       <div style={{ padding: 40 }}>
         <Image src="/logo.png" alt="Logo" width={140} height={140} />
 
-        <h1>Acquaintance App</h1>
+        <h1 style={{ fontSize: 32, fontWeight: 700 }}>
+  RT Meeting App
+</h1>
 
         <input
           placeholder="Email"
