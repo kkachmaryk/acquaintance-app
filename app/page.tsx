@@ -26,7 +26,6 @@ const firebaseConfig = {
   storageBucket: "rtapp-c795f.firebasestorage.app",
   messagingSenderId: "712624544807",
   appId: "1:712624544807:web:a1e1afc696a59897ce4202",
-  measurementId: "G-6TW2BZ05Y9",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -35,19 +34,11 @@ const db = getFirestore(app);
 
 const ADMIN_EMAIL = "khrystyna.kachmaryk@gmail.com";
 
-function getRandomUser(currentId: string, users: any[], met: string[]) {
-  const available = users.filter(
-    (u) => u.id !== currentId && !met.includes(u.id)
-  );
-  if (!available.length) return null;
-  return available[Math.floor(Math.random() * available.length)];
-}
-
 export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
-  const [match, setMatch] = useState<any>(null);
+  const [pair, setPair] = useState<any>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("123456");
@@ -72,45 +63,28 @@ export default function Home() {
           country: "",
           email: u.email,
           completed: 0,
-          met: [],
-          currentMatch: null,
+          met: false,
+          pairId: null,
         };
+
         await setDoc(ref, currentProfile);
       } else {
         currentProfile = snap.data();
       }
+
+      setProfile(currentProfile);
 
       const all = await getDocs(collection(db, "users"));
       const arr: any[] = [];
       all.forEach((d) => arr.push({ id: d.id, ...d.data() }));
       setUsers(arr);
 
-      // 🔥 СТАБІЛЬНИЙ MATCH
-      let nextUser = null;
-
-      if (currentProfile.currentMatch) {
-        nextUser = arr.find(
-          (u) => u.id === currentProfile.currentMatch
+      if (currentProfile.pairId) {
+        const foundPair = arr.find(
+          (x) => x.id === currentProfile.pairId
         );
+        setPair(foundPair);
       }
-
-      if (!nextUser) {
-        nextUser = getRandomUser(
-          u.uid,
-          arr,
-          currentProfile.met || []
-        );
-
-        if (nextUser) {
-          await updateDoc(ref, {
-            currentMatch: nextUser.id,
-          });
-          currentProfile.currentMatch = nextUser.id;
-        }
-      }
-
-      setProfile(currentProfile);
-      setMatch(nextUser);
     });
   }, []);
 
@@ -118,16 +92,11 @@ export default function Home() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch {
-      alert("Login failed. Check email or password.");
+      alert("Login failed.");
     }
   };
 
   const saveProfile = async () => {
-    if (!nameInput || !countryInput) {
-      alert("Please fill in all fields 🙂");
-      return;
-    }
-
     const ref = doc(db, "users", user.uid);
 
     const updated = {
@@ -140,70 +109,57 @@ export default function Home() {
     setProfile(updated);
   };
 
-  const completeMeeting = async () => {
-    if (!match) return;
+  const confirmMeeting = async () => {
+    if (!pair) return;
 
-    if (!confirm(`Did you REALLY meet ${match.name}? 🙂`))
+    if (!confirm(`Did you meet ${pair.name}?`))
       return;
 
     const ref = doc(db, "users", user.uid);
 
-    const updatedMet = [...(profile.met || []), match.id];
-
-    const updated = {
-      ...profile,
+    await updateDoc(ref, {
+      met: true,
       completed: (profile.completed || 0) + 1,
-      met: updatedMet,
-      currentMatch: null,
-    };
+    });
 
-    await updateDoc(ref, updated);
-    setProfile(updated);
-
-    const next = getRandomUser(user.uid, users, updatedMet);
-
-    if (next) {
-      await updateDoc(ref, { currentMatch: next.id });
-      updated.currentMatch = next.id;
-    }
-
-    setMatch(next);
+    setProfile({
+      ...profile,
+      met: true,
+      completed: (profile.completed || 0) + 1,
+    });
   };
 
-  const undoMeeting = async () => {
-    if (!profile.met?.length) return;
+  // ⭐ ADMIN — AUTO GENERATE PAIRS
+  const generatePairs = async () => {
+    const shuffled = [...users].sort(
+      () => Math.random() - 0.5
+    );
 
-    const ref = doc(db, "users", user.uid);
+    for (let i = 0; i < shuffled.length; i += 2) {
+      const a = shuffled[i];
+      const b = shuffled[i + 1];
 
-    const updatedMet = profile.met.slice(0, -1);
+      if (!b) break;
 
-    const updated = {
-      ...profile,
-      completed: Math.max(
-        (profile.completed || 1) - 1,
-        0
-      ),
-      met: updatedMet,
-      currentMatch: null,
-    };
+      await updateDoc(doc(db, "users", a.id), {
+        pairId: b.id,
+        met: false,
+      });
 
-    await updateDoc(ref, updated);
-    setProfile(updated);
-
-    const next = getRandomUser(user.uid, users, updatedMet);
-
-    if (next) {
-      await updateDoc(ref, { currentMatch: next.id });
-      updated.currentMatch = next.id;
+      await updateDoc(doc(db, "users", b.id), {
+        pairId: a.id,
+        met: false,
+      });
     }
 
-    setMatch(next);
+    alert("Pairs generated!");
   };
 
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
         <Image src="/logo.png" alt="Logo" width={140} height={140} />
+
         <h1>RT Meeting App</h1>
 
         <input
@@ -233,7 +189,8 @@ export default function Home() {
     return (
       <div style={{ padding: 40 }}>
         <Image src="/logo.png" alt="Logo" width={140} height={140} />
-        <h2>Welcome 🙂 Tell us about yourself</h2>
+
+        <h2>Tell us about yourself 🙂</h2>
 
         <input
           placeholder="Full name"
@@ -263,8 +220,7 @@ export default function Home() {
       <Image src="/logo.png" alt="Logo" width={140} height={140} />
 
       <h2>Welcome, {profile.name}</h2>
-      <p>Country: {profile.country}</p>
-      <p>Completed meetings: {profile.completed}</p>
+      <p>Meetings completed: {profile.completed || 0}</p>
 
       <button onClick={() => signOut(auth)}>
         Logout
@@ -272,57 +228,39 @@ export default function Home() {
 
       <hr />
 
-      {match ? (
+      {pair ? (
         <div>
-          <h3>Your next person:</h3>
-          <p><strong>{match.name}</strong></p>
-          <p>{match.country}</p>
-          <p>{match.email}</p>
+          <h3>Your pair:</h3>
+          <p><strong>{pair.name}</strong></p>
+          <p>{pair.country}</p>
+          <p>{pair.email}</p>
 
-          <button onClick={completeMeeting}>
-            We met ✅
-          </button>
-
-          {profile.met?.length > 0 && (
-            <button
-              onClick={undoMeeting}
-              style={{ marginLeft: 10 }}
-            >
-              Undo
+          {!profile.met && (
+            <button onClick={confirmMeeting}>
+              We met ✅
             </button>
+          )}
+
+          {profile.met && (
+            <h3>✅ Meeting confirmed!</h3>
           )}
         </div>
       ) : (
-        <h3>🎉 You met everyone!</h3>
+        <h3>Admin will assign your pair soon 🙂</h3>
       )}
-
-      <hr />
-
-      <h3>Leaderboard</h3>
-
-      {users
-        .slice()
-        .sort(
-          (a, b) =>
-            (b.completed || 0) -
-            (a.completed || 0)
-        )
-        .map((u) => (
-          <div key={u.id}>
-            {u.name || "Unnamed"} —{" "}
-            {u.completed || 0}
-          </div>
-        ))}
 
       {user.email === ADMIN_EMAIL && (
         <>
           <hr />
           <h2>ADMIN PANEL</h2>
 
+          <button onClick={generatePairs}>
+            🔥 Generate Pairs
+          </button>
+
           {users.map((u) => (
             <div key={u.id}>
-              {u.name} — meetings:{" "}
-              {u.completed || 0}
+              {u.name} — met: {u.met ? "YES" : "NO"}
             </div>
           ))}
         </>
