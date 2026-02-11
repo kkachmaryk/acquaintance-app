@@ -33,6 +33,9 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+const ADMIN_EMAIL = "khrystyna.kachmaryk@gmail.com";
+
+// 🔥 SMART MATCH
 function pickSmartMatch(
   myId: string,
   users: any[],
@@ -42,7 +45,7 @@ function pickSmartMatch(
     (u) =>
       u.id !== myId &&
       !met.includes(u.id) &&
-      !(u.met || []).includes(myId) // 🔥 ключова перевірка
+      !(u.met || []).includes(myId)
   );
 
   if (!available.length) return null;
@@ -55,6 +58,7 @@ function pickSmartMatch(
 export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [users, setUsers] = useState<any[]>([]);
   const [match, setMatch] = useState<any>(null);
 
   const [email, setEmail] = useState("");
@@ -63,16 +67,31 @@ export default function Home() {
   const [nameInput, setNameInput] = useState("");
   const [countryInput, setCountryInput] = useState("");
 
-  // 🔥 ГЕНЕРАЦІЯ MATCH
-  const generateMatch = async (uid: string, myMet: string[]) => {
+  // 🔥 LOAD EVERYTHING
+  const loadUsers = async () => {
     const snapshot = await getDocs(collection(db, "users"));
 
-    const users: any[] = [];
+    const arr: any[] = [];
     snapshot.forEach((d) =>
-      users.push({ id: d.id, ...d.data() })
+      arr.push({ id: d.id, ...d.data() })
     );
 
-    const smart = pickSmartMatch(uid, users, myMet);
+    setUsers(arr);
+
+    return arr;
+  };
+
+  const generateMatch = async (
+    uid: string,
+    metList: string[]
+  ) => {
+    const freshUsers = await loadUsers();
+
+    const smart = pickSmartMatch(
+      uid,
+      freshUsers,
+      metList
+    );
 
     if (!smart) return null;
 
@@ -111,26 +130,32 @@ export default function Home() {
 
       setProfile(data);
 
-      // 🔥 якщо вже є match
+      const allUsers = await loadUsers();
+
+      // existing match
       if (data.currentMatch) {
-        const partner = await getDoc(
-          doc(db, "users", data.currentMatch)
+        const partner = allUsers.find(
+          (x) => x.id === data.currentMatch
         );
 
-        if (partner.exists()) {
-          setMatch({
-            id: partner.id,
-            ...partner.data(),
-          });
+        if (partner) {
+          setMatch(partner);
           return;
         }
       }
 
-      // 🔥 інакше генеруємо
-      const smart = await generateMatch(
+      // generate new
+      const smart = pickSmartMatch(
         u.uid,
+        allUsers,
         data.met || []
       );
+
+      if (smart) {
+        await updateDoc(ref, {
+          currentMatch: smart.id,
+        });
+      }
 
       setMatch(smart);
     });
@@ -161,7 +186,7 @@ export default function Home() {
     setProfile(updated);
   };
 
-  // 🔥 CONFIRM MEETING (двосторонній запис)
+  // 🔥 CONFIRM (двосторонній met)
   const confirmMeeting = async () => {
     if (!match) return;
 
@@ -171,7 +196,6 @@ export default function Home() {
     const myRef = doc(db, "users", user.uid);
     const theirRef = doc(db, "users", match.id);
 
-    // записуємо ОБОМ
     await updateDoc(myRef, {
       met: arrayUnion(match.id),
       completed: (profile.completed || 0) + 1,
@@ -291,6 +315,65 @@ export default function Home() {
         </div>
       ) : (
         <h3>🎉 You met everyone!</h3>
+      )}
+
+      {/* 🔥 LEADERBOARD */}
+      <hr />
+      <h3>Leaderboard</h3>
+
+      {users
+        .slice()
+        .sort(
+          (a, b) =>
+            (b.completed || 0) -
+            (a.completed || 0)
+        )
+        .map((u) => (
+          <div key={u.id}>
+            {u.name || "Unnamed"} —{" "}
+            {u.completed || 0}
+          </div>
+        ))}
+
+      {/* 🔥 ADMIN */}
+      {user.email === ADMIN_EMAIL && (
+        <>
+          <hr />
+          <h2>ADMIN PANEL</h2>
+
+          <button
+            onClick={async () => {
+              if (!confirm("Reset ALL matches?"))
+                return;
+
+              const snapshot = await getDocs(
+                collection(db, "users")
+              );
+
+              const updates: any[] = [];
+
+              snapshot.forEach((d) => {
+                updates.push(
+                  updateDoc(
+                    doc(db, "users", d.id),
+                    {
+                      currentMatch: null,
+                      met: [],
+                      completed: 0,
+                    }
+                  )
+                );
+              });
+
+              await Promise.all(updates);
+
+              alert("🔥 Reset complete!");
+              location.reload();
+            }}
+          >
+            🔥 RESET EVENT
+          </button>
+        </>
       )}
     </div>
   );
