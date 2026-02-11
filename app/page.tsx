@@ -92,11 +92,16 @@ export default function Home() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch {
-      alert("Login failed.");
+      alert("Login failed. Check email/password.");
     }
   };
 
   const saveProfile = async () => {
+    if (!nameInput || !countryInput) {
+      alert("Please fill all fields 🙂");
+      return;
+    }
+
     const ref = doc(db, "users", user.uid);
 
     const updated = {
@@ -112,25 +117,28 @@ export default function Home() {
   const confirmMeeting = async () => {
     if (!pair) return;
 
-    if (!confirm(`Did you meet ${pair.name}?`))
-      return;
+    const ok = confirm(
+      `Did you REALLY meet ${pair.name} in person? 🙂`
+    );
+
+    if (!ok) return;
 
     const ref = doc(db, "users", user.uid);
 
-    await updateDoc(ref, {
-      met: true,
-      completed: (profile.completed || 0) + 1,
-    });
-
-    setProfile({
+    const updated = {
       ...profile,
       met: true,
       completed: (profile.completed || 0) + 1,
-    });
+    };
+
+    await updateDoc(ref, updated);
+    setProfile(updated);
   };
 
-  // ⭐ ADMIN — AUTO GENERATE PAIRS
+  // 🔥 ADMIN — GENERATE PAIRS
   const generatePairs = async () => {
+    if (!confirm("Generate NEW pairs?")) return;
+
     const shuffled = [...users].sort(
       () => Math.random() - 0.5
     );
@@ -152,9 +160,11 @@ export default function Home() {
       });
     }
 
-    alert("Pairs generated!");
+    alert("🔥 Pairs generated!");
+    location.reload();
   };
 
+  // LOGIN SCREEN
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
@@ -185,6 +195,7 @@ export default function Home() {
     );
   }
 
+  // FIRST LOGIN
   if (!profile?.name) {
     return (
       <div style={{ padding: 40 }}>
@@ -215,6 +226,7 @@ export default function Home() {
     );
   }
 
+  // MAIN APP
   return (
     <div style={{ padding: 40 }}>
       <Image src="/logo.png" alt="Logo" width={140} height={140} />
@@ -230,24 +242,47 @@ export default function Home() {
 
       {pair ? (
         <div>
-          <h3>Your pair:</h3>
+          <h3>Your meeting partner:</h3>
+
           <p><strong>{pair.name}</strong></p>
           <p>{pair.country}</p>
           <p>{pair.email}</p>
 
-          {!profile.met && (
-            <button onClick={confirmMeeting}>
-              We met ✅
-            </button>
-          )}
+          {!profile.met ? (
+            <>
+              <button onClick={confirmMeeting}>
+                ✅ Confirm meeting
+              </button>
 
-          {profile.met && (
+              <p style={{ fontSize: 14, opacity: 0.6 }}>
+                Press only AFTER you actually meet in person 🙂
+              </p>
+            </>
+          ) : (
             <h3>✅ Meeting confirmed!</h3>
           )}
         </div>
       ) : (
-        <h3>Admin will assign your pair soon 🙂</h3>
+        <h3>Admin will assign your partner soon 🙂</h3>
       )}
+
+      <hr />
+
+      <h3>Leaderboard</h3>
+
+      {users
+        .slice()
+        .sort(
+          (a, b) =>
+            (b.completed || 0) -
+            (a.completed || 0)
+        )
+        .map((u) => (
+          <div key={u.id}>
+            {u.name || "Unnamed"} —{" "}
+            {u.completed || 0}
+          </div>
+        ))}
 
       {user.email === ADMIN_EMAIL && (
         <>
@@ -255,12 +290,13 @@ export default function Home() {
           <h2>ADMIN PANEL</h2>
 
           <button onClick={generatePairs}>
-            🔥 Generate Pairs
+            🔥 Generate pairs
           </button>
 
           {users.map((u) => (
             <div key={u.id}>
-              {u.name} — met: {u.met ? "YES" : "NO"}
+              {u.name} — met:{" "}
+              {u.met ? "YES" : "NO"}
             </div>
           ))}
         </>
