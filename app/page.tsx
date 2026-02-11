@@ -18,6 +18,7 @@ import {
   getDocs,
   updateDoc,
   arrayUnion,
+  arrayRemove,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -35,24 +36,17 @@ const db = getFirestore(app);
 
 const ADMIN_EMAIL = "khrystyna.kachmaryk@gmail.com";
 
-// 🔥 SMART MATCH
-function pickSmartMatch(
-  myId: string,
-  users: any[],
-  met: string[]
-) {
+function pickSmartMatch(myId: string, users: any[], met: string[]) {
   const available = users.filter(
     (u) =>
       u.id !== myId &&
-      !met.includes(u.id) &&
+      !(met || []).includes(u.id) &&
       !(u.met || []).includes(myId)
   );
 
   if (!available.length) return null;
 
-  return available[
-    Math.floor(Math.random() * available.length)
-  ];
+  return available[Math.floor(Math.random() * available.length)];
 }
 
 export default function Home() {
@@ -67,7 +61,7 @@ export default function Home() {
   const [nameInput, setNameInput] = useState("");
   const [countryInput, setCountryInput] = useState("");
 
-  // 🔥 LOAD EVERYTHING
+  // LOAD USERS
   const loadUsers = async () => {
     const snapshot = await getDocs(collection(db, "users"));
 
@@ -77,21 +71,14 @@ export default function Home() {
     );
 
     setUsers(arr);
-
     return arr;
   };
 
-  const generateMatch = async (
-    uid: string,
-    metList: string[]
-  ) => {
+  // GENERATE MATCH
+  const generateMatch = async (uid: string, metList: string[]) => {
     const freshUsers = await loadUsers();
 
-    const smart = pickSmartMatch(
-      uid,
-      freshUsers,
-      metList
-    );
+    const smart = pickSmartMatch(uid, freshUsers, metList);
 
     if (!smart) return null;
 
@@ -163,17 +150,18 @@ export default function Home() {
 
   const login = async () => {
     try {
-      await signInWithEmailAndPassword(
-        auth,
-        email,
-        password
-      );
+      await signInWithEmailAndPassword(auth, email, password);
     } catch {
       alert("Login failed");
     }
   };
 
   const saveProfile = async () => {
+    if (!nameInput || !countryInput) {
+      alert("Fill all fields 🙂");
+      return;
+    }
+
     const ref = doc(db, "users", user.uid);
 
     const updated = {
@@ -186,7 +174,7 @@ export default function Home() {
     setProfile(updated);
   };
 
-  // 🔥 CONFIRM (двосторонній met)
+  // CONFIRM
   const confirmMeeting = async () => {
     if (!match) return;
 
@@ -208,10 +196,7 @@ export default function Home() {
 
     const newMet = [...(profile.met || []), match.id];
 
-    const next = await generateMatch(
-      user.uid,
-      newMet
-    );
+    const next = await generateMatch(user.uid, newMet);
 
     setProfile({
       ...profile,
@@ -221,6 +206,36 @@ export default function Home() {
     });
 
     setMatch(next);
+  };
+
+  // UNDO
+  const undoMeeting = async () => {
+    if (!match) return;
+
+    if (!confirm(`Undo meeting with ${match.name}?`))
+      return;
+
+    const myRef = doc(db, "users", user.uid);
+    const theirRef = doc(db, "users", match.id);
+
+    await updateDoc(myRef, {
+      met: arrayRemove(match.id),
+      completed: Math.max((profile.completed || 1) - 1, 0),
+      currentMatch: match.id,
+    });
+
+    await updateDoc(theirRef, {
+      met: arrayRemove(user.uid),
+    });
+
+    setProfile({
+      ...profile,
+      met: (profile.met || []).filter(
+        (id: string) => id !== match.id
+      ),
+      completed: Math.max((profile.completed || 1) - 1, 0),
+      currentMatch: match.id,
+    });
   };
 
   // LOGIN
@@ -233,18 +248,14 @@ export default function Home() {
         <input
           placeholder="Email"
           value={email}
-          onChange={(e) =>
-            setEmail(e.target.value)
-          }
+          onChange={(e) => setEmail(e.target.value)}
         />
         <br /><br />
 
         <input
           placeholder="Password"
           value={password}
-          onChange={(e) =>
-            setPassword(e.target.value)
-          }
+          onChange={(e) => setPassword(e.target.value)}
         />
         <br /><br />
 
@@ -264,18 +275,14 @@ export default function Home() {
         <input
           placeholder="Full name"
           value={nameInput}
-          onChange={(e) =>
-            setNameInput(e.target.value)
-          }
+          onChange={(e) => setNameInput(e.target.value)}
         />
         <br /><br />
 
         <input
           placeholder="Country"
           value={countryInput}
-          onChange={(e) =>
-            setCountryInput(e.target.value)
-          }
+          onChange={(e) => setCountryInput(e.target.value)}
         />
         <br /><br />
 
@@ -309,6 +316,13 @@ export default function Home() {
             ✅ Confirm meeting
           </button>
 
+          <button
+            onClick={undoMeeting}
+            style={{ marginLeft: 10 }}
+          >
+            ↩️ Undo
+          </button>
+
           <p style={{ fontSize: 14, opacity: 0.6 }}>
             Press only AFTER you actually meet 🙂
           </p>
@@ -317,25 +331,18 @@ export default function Home() {
         <h3>🎉 You met everyone!</h3>
       )}
 
-      {/* 🔥 LEADERBOARD */}
       <hr />
       <h3>Leaderboard</h3>
 
       {users
         .slice()
-        .sort(
-          (a, b) =>
-            (b.completed || 0) -
-            (a.completed || 0)
-        )
+        .sort((a, b) => (b.completed || 0) - (a.completed || 0))
         .map((u) => (
           <div key={u.id}>
-            {u.name || "Unnamed"} —{" "}
-            {u.completed || 0}
+            {u.name || "Unnamed"} — {u.completed || 0}
           </div>
         ))}
 
-      {/* 🔥 ADMIN */}
       {user.email === ADMIN_EMAIL && (
         <>
           <hr />
@@ -343,31 +350,25 @@ export default function Home() {
 
           <button
             onClick={async () => {
-              if (!confirm("Reset ALL matches?"))
-                return;
+              if (!confirm("Reset event?")) return;
 
-              const snapshot = await getDocs(
-                collection(db, "users")
-              );
+              const snapshot = await getDocs(collection(db, "users"));
 
               const updates: any[] = [];
 
               snapshot.forEach((d) => {
                 updates.push(
-                  updateDoc(
-                    doc(db, "users", d.id),
-                    {
-                      currentMatch: null,
-                      met: [],
-                      completed: 0,
-                    }
-                  )
+                  updateDoc(doc(db, "users", d.id), {
+                    currentMatch: null,
+                    met: [],
+                    completed: 0,
+                  })
                 );
               });
 
               await Promise.all(updates);
 
-              alert("🔥 Reset complete!");
+              alert("🔥 Event reset!");
               location.reload();
             }}
           >
