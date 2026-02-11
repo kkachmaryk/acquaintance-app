@@ -39,7 +39,9 @@ function getRandomUser(currentId: string, users: any[], met: string[]) {
   const available = users.filter(
     (u) => u.id !== currentId && !met.includes(u.id)
   );
+
   if (!available.length) return null;
+
   return available[Math.floor(Math.random() * available.length)];
 }
 
@@ -93,10 +95,19 @@ export default function Home() {
   }, []);
 
   const login = async () => {
-    await signInWithEmailAndPassword(auth, email, password);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      alert("Login failed. Check email or password.");
+    }
   };
 
   const saveProfile = async () => {
+    if (!nameInput || !countryInput) {
+      alert("Please fill in all fields 🙂");
+      return;
+    }
+
     const ref = doc(db, "users", user.uid);
 
     const updated = {
@@ -112,7 +123,14 @@ export default function Home() {
   const completeMeeting = async () => {
     if (!match) return;
 
+    const ok = confirm(
+      `Did you REALLY meet ${match.name}? 🙂`
+    );
+
+    if (!ok) return;
+
     const ref = doc(db, "users", user.uid);
+
     const updatedMet = [...(profile.met || []), match.id];
 
     const updated = {
@@ -128,15 +146,34 @@ export default function Home() {
     setMatch(next);
   };
 
-  // LOGIN SCREEN
+  // ⭐ UNDO
+  const undoMeeting = async () => {
+    if (!profile.met?.length) return;
+
+    const ref = doc(db, "users", user.uid);
+
+    const updatedMet = profile.met.slice(0, -1);
+
+    const updated = {
+      ...profile,
+      completed: Math.max((profile.completed || 1) - 1, 0),
+      met: updatedMet,
+    };
+
+    await updateDoc(ref, updated);
+    setProfile(updated);
+
+    const next = getRandomUser(user.uid, users, updatedMet);
+    setMatch(next);
+  };
+
+  // LOGIN
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
         <Image src="/logo.png" alt="Logo" width={140} height={140} />
 
-        <h1 style={{ fontSize: 32, fontWeight: 700 }}>
-  RT Meeting App
-</h1>
+        <h1>RT Meeting App</h1>
 
         <input
           placeholder="Email"
@@ -163,7 +200,7 @@ export default function Home() {
       <div style={{ padding: 40 }}>
         <Image src="/logo.png" alt="Logo" width={140} height={140} />
 
-        <h2>Welcome! Tell us about yourself 🙂</h2>
+        <h2>Welcome 🙂 Tell us about yourself</h2>
 
         <input
           placeholder="Full name"
@@ -207,6 +244,15 @@ export default function Home() {
           <button onClick={completeMeeting}>
             We met ✅
           </button>
+
+          {profile.met?.length > 0 && (
+            <button
+              onClick={undoMeeting}
+              style={{ marginLeft: 10 }}
+            >
+              Undo
+            </button>
+          )}
         </div>
       ) : (
         <h3>🎉 You met everyone!</h3>
@@ -240,3 +286,6 @@ export default function Home() {
     </div>
   );
 }
+
+
+
