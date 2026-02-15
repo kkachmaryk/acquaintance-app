@@ -34,6 +34,8 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+const ADMIN_EMAIL = "khrystyna.kachmaryk@gmail.com";
+
 function pickSmartMatch(myId: string, users: any[], met: string[]) {
   const available = users.filter(
     (u) =>
@@ -52,6 +54,7 @@ export default function Home() {
   const [profile, setProfile] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [match, setMatch] = useState<any>(null);
+  const [eventStarted, setEventStarted] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("123456");
@@ -59,6 +62,7 @@ export default function Home() {
   const [nameInput, setNameInput] = useState("");
   const [countryInput, setCountryInput] = useState("");
 
+  // LOAD USERS
   const loadUsers = async () => {
     const snapshot = await getDocs(collection(db, "users"));
     const arr: any[] = [];
@@ -67,6 +71,20 @@ export default function Home() {
     return arr;
   };
 
+  // LOAD EVENT STATE
+  const loadEventState = async () => {
+    const ref = doc(db, "settings", "event");
+    const snap = await getDoc(ref);
+
+    if (!snap.exists()) {
+      await setDoc(ref, { started: false });
+      setEventStarted(false);
+    } else {
+      setEventStarted(snap.data().started);
+    }
+  };
+
+  // GENERATE MATCH
   const generateMatch = async (uid: string, metList: string[]) => {
     const freshUsers = await loadUsers();
     const smart = pickSmartMatch(uid, freshUsers, metList);
@@ -81,6 +99,8 @@ export default function Home() {
   };
 
   useEffect(() => {
+    loadEventState();
+
     onAuthStateChanged(auth, async (u) => {
       if (!u) return;
 
@@ -109,6 +129,8 @@ export default function Home() {
 
       const allUsers = await loadUsers();
 
+      if (!eventStarted) return;
+
       if (data.currentMatch) {
         const partner = allUsers.find((x) => x.id === data.currentMatch);
         if (partner) {
@@ -120,14 +142,12 @@ export default function Home() {
       const smart = pickSmartMatch(u.uid, allUsers, data.met || []);
 
       if (smart) {
-        await updateDoc(ref, {
-          currentMatch: smart.id,
-        });
+        await updateDoc(ref, { currentMatch: smart.id });
       }
 
       setMatch(smart);
     });
-  }, []);
+  }, [eventStarted]);
 
   const login = async () => {
     try {
@@ -155,11 +175,8 @@ export default function Home() {
     setProfile(updated);
   };
 
-  // ✅ CONFIRM MEETING
   const confirmMeeting = async () => {
     if (!match) return;
-
-    // guard double click
     if (profile.currentMatch !== match.id) return;
 
     if (!confirm(`Did you REALLY meet ${match.name}?`)) return;
@@ -191,7 +208,6 @@ export default function Home() {
     setMatch(next);
   };
 
-  // 🔁 UNDO MEETING (CORRECT VERSION)
   const undoMeeting = async () => {
     if (!profile.met?.length) {
       alert("No meeting to undo");
@@ -224,24 +240,17 @@ export default function Home() {
     setMatch(previousUser);
   };
 
+  // LOGIN
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
         <Image src="/logo.png" alt="Logo" width={140} height={140} />
         <h1>RT Meeting App</h1>
 
-        <input
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
+        <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <br /><br />
 
-        <input
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <input placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
         <br /><br />
 
         <button onClick={login}>Login</button>
@@ -249,6 +258,7 @@ export default function Home() {
     );
   }
 
+  // FIRST LOGIN
   if (!profile?.name) {
     return (
       <div style={{ padding: 40 }}>
@@ -256,18 +266,10 @@ export default function Home() {
 
         <h2>Tell us about yourself 🙂</h2>
 
-        <input
-          placeholder="Full name"
-          value={nameInput}
-          onChange={(e) => setNameInput(e.target.value)}
-        />
+        <input placeholder="Full name" value={nameInput} onChange={(e) => setNameInput(e.target.value)} />
         <br /><br />
 
-        <input
-          placeholder="Country"
-          value={countryInput}
-          onChange={(e) => setCountryInput(e.target.value)}
-        />
+        <input placeholder="Country" value={countryInput} onChange={(e) => setCountryInput(e.target.value)} />
         <br /><br />
 
         <button onClick={saveProfile}>Save</button>
@@ -275,6 +277,36 @@ export default function Home() {
     );
   }
 
+  // WAITING SCREEN
+  if (!eventStarted) {
+    return (
+      <div style={{ padding: 40 }}>
+        <Image src="/logo.png" alt="Logo" width={140} height={140} />
+        <h2>⏳ Event has not started yet</h2>
+        <p>Please wait for organizer 🙂</p>
+
+        {user.email === ADMIN_EMAIL && (
+          <>
+            <hr />
+            <h3>ADMIN PANEL</h3>
+
+            <button
+              onClick={async () => {
+                await setDoc(doc(db, "settings", "event"), {
+                  started: true,
+                });
+                setEventStarted(true);
+              }}
+            >
+              🚀 Start Event
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // MAIN APP
   return (
     <div style={{ padding: 40 }}>
       <Image src="/logo.png" alt="Logo" width={140} height={140} />
@@ -295,10 +327,7 @@ export default function Home() {
           <p>{match.email}</p>
 
           <button onClick={confirmMeeting}>✅ Confirm meeting</button>
-
-          <button onClick={undoMeeting} style={{ marginLeft: 10 }}>
-            ↩️ Return
-          </button>
+          <button onClick={undoMeeting} style={{ marginLeft: 10 }}>↩️ Return</button>
 
           <p style={{ fontSize: 14, opacity: 0.6 }}>
             Press only AFTER you actually meet 🙂
