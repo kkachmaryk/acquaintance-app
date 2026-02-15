@@ -34,8 +34,6 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const ADMIN_EMAIL = "khrystyna.kachmaryk@gmail.com";
-
 function pickSmartMatch(myId: string, users: any[], met: string[]) {
   const available = users.filter(
     (u) =>
@@ -64,12 +62,8 @@ export default function Home() {
   // LOAD USERS
   const loadUsers = async () => {
     const snapshot = await getDocs(collection(db, "users"));
-
     const arr: any[] = [];
-    snapshot.forEach((d) =>
-      arr.push({ id: d.id, ...d.data() })
-    );
-
+    snapshot.forEach((d) => arr.push({ id: d.id, ...d.data() }));
     setUsers(arr);
     return arr;
   };
@@ -77,13 +71,15 @@ export default function Home() {
   // GENERATE MATCH
   const generateMatch = async (uid: string, metList: string[]) => {
     const freshUsers = await loadUsers();
-
     const smart = pickSmartMatch(uid, freshUsers, metList);
 
     if (!smart) return null;
 
-    await updateDoc(doc(db, "users", uid), {
+    const ref = doc(db, "users", uid);
+
+    await updateDoc(ref, {
       currentMatch: smart.id,
+      matchHistory: arrayUnion(smart.id),
     });
 
     return smart;
@@ -108,39 +104,33 @@ export default function Home() {
           met: [],
           completed: 0,
           currentMatch: null,
+          matchHistory: [],
         };
-
         await setDoc(ref, data);
       } else {
         data = snap.data();
+        if (!data.matchHistory) data.matchHistory = [];
       }
 
       setProfile(data);
 
       const allUsers = await loadUsers();
 
-      // existing match
+      // EXISTING MATCH
       if (data.currentMatch) {
-        const partner = allUsers.find(
-          (x) => x.id === data.currentMatch
-        );
-
+        const partner = allUsers.find((x) => x.id === data.currentMatch);
         if (partner) {
           setMatch(partner);
           return;
         }
       }
 
-      // generate new
-      const smart = pickSmartMatch(
-        u.uid,
-        allUsers,
-        data.met || []
-      );
+      const smart = pickSmartMatch(u.uid, allUsers, data.met || []);
 
       if (smart) {
         await updateDoc(ref, {
           currentMatch: smart.id,
+          matchHistory: arrayUnion(smart.id),
         });
       }
 
@@ -174,12 +164,14 @@ export default function Home() {
     setProfile(updated);
   };
 
-  // CONFIRM
+  // CONFIRM MEETING
   const confirmMeeting = async () => {
     if (!match) return;
 
-    if (!confirm(`Did you REALLY meet ${match.name}?`))
-      return;
+    // guard from double click
+    if (profile.currentMatch !== match.id) return;
+
+    if (!confirm(`Did you REALLY meet ${match.name}?`)) return;
 
     const myRef = doc(db, "users", user.uid);
     const theirRef = doc(db, "users", match.id);
@@ -203,42 +195,56 @@ export default function Home() {
       met: newMet,
       completed: (profile.completed || 0) + 1,
       currentMatch: next?.id || null,
+      matchHistory: next
+        ? [...(profile.matchHistory || []), next.id]
+        : profile.matchHistory,
     });
 
     setMatch(next);
   };
 
-  // UNDO
+  // UNDO MEETING
   const undoMeeting = async () => {
-    if (!match) return;
-
-    if (!confirm(`Undo meeting with ${match.name}?`))
+    if (!profile.matchHistory?.length || profile.matchHistory.length < 2) {
+      alert("No previous match");
       return;
+    }
+
+    const lastMetId = profile.met?.[profile.met.length - 1];
+
+    const previousId =
+      profile.matchHistory[profile.matchHistory.length - 2];
+
+    const previousUser = users.find((u) => u.id === previousId);
 
     const myRef = doc(db, "users", user.uid);
-    const theirRef = doc(db, "users", match.id);
+    const theirRef = lastMetId ? doc(db, "users", lastMetId) : null;
 
     await updateDoc(myRef, {
-      met: arrayRemove(match.id),
+      currentMatch: previousId,
+      matchHistory: profile.matchHistory.slice(0, -1),
+      met: profile.met.slice(0, -1),
       completed: Math.max((profile.completed || 1) - 1, 0),
-      currentMatch: match.id,
     });
 
-    await updateDoc(theirRef, {
-      met: arrayRemove(user.uid),
-    });
+    if (theirRef) {
+      await updateDoc(theirRef, {
+        met: arrayRemove(user.uid),
+      });
+    }
 
     setProfile({
       ...profile,
-      met: (profile.met || []).filter(
-        (id: string) => id !== match.id
-      ),
+      currentMatch: previousId,
+      matchHistory: profile.matchHistory.slice(0, -1),
+      met: profile.met.slice(0, -1),
       completed: Math.max((profile.completed || 1) - 1, 0),
-      currentMatch: match.id,
     });
+
+    setMatch(previousUser);
   };
 
-  // LOGIN
+  // LOGIN SCREEN
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
@@ -291,6 +297,7 @@ export default function Home() {
     );
   }
 
+  // MAIN APP
   return (
     <div style={{ padding: 40 }}>
       <Image src="/logo.png" alt="Logo" width={140} height={140} />
@@ -298,9 +305,7 @@ export default function Home() {
       <h2>Welcome, {profile.name}</h2>
       <p>Meetings completed: {profile.completed}</p>
 
-      <button onClick={() => signOut(auth)}>
-        Logout
-      </button>
+      <button onClick={() => signOut(auth)}>Logout</button>
 
       <hr />
 
@@ -312,15 +317,10 @@ export default function Home() {
           <p>{match.country}</p>
           <p>{match.email}</p>
 
-          <button onClick={confirmMeeting}>
-            ✅ Confirm meeting
-          </button>
+          <button onClick={confirmMeeting}>✅ Confirm meeting</button>
 
-          <button
-            onClick={undoMeeting}
-            style={{ marginLeft: 10 }}
-          >
-            ↩️ Undo
+          <button onClick={undoMeeting} style={{ marginLeft: 10 }}>
+            ↩️ Return
           </button>
 
           <p style={{ fontSize: 14, opacity: 0.6 }}>
@@ -328,7 +328,7 @@ export default function Home() {
           </p>
         </div>
       ) : (
-        <h3>🎉 You met everyone!</h3>
+        <h3>No new matches available right now 🙂</h3>
       )}
 
       <hr />
@@ -342,40 +342,6 @@ export default function Home() {
             {u.name || "Unnamed"} — {u.completed || 0}
           </div>
         ))}
-
-      {user.email === ADMIN_EMAIL && (
-        <>
-          <hr />
-          <h2>ADMIN PANEL</h2>
-
-          <button
-            onClick={async () => {
-              if (!confirm("Reset event?")) return;
-
-              const snapshot = await getDocs(collection(db, "users"));
-
-              const updates: any[] = [];
-
-              snapshot.forEach((d) => {
-                updates.push(
-                  updateDoc(doc(db, "users", d.id), {
-                    currentMatch: null,
-                    met: [],
-                    completed: 0,
-                  })
-                );
-              });
-
-              await Promise.all(updates);
-
-              alert("🔥 Event reset!");
-              location.reload();
-            }}
-          >
-            🔥 RESET EVENT
-          </button>
-        </>
-      )}
     </div>
   );
 }
