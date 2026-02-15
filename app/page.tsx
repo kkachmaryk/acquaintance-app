@@ -295,16 +295,17 @@ if (!eventStarted) {
           <h3>ADMIN PANEL</h3>
 
           <button
-            onClick={async () => {
-              await setDoc(doc(db, "settings", "event"), {
-                started: true,
-              });
-              setEventStarted(true);
-              location.reload();
-            }}
-          >
-            🚀 Start Event
-          </button>
+  className="primary-btn"
+  onClick={async () => {
+    await setDoc(doc(db, "settings", "event"), {
+      started: true,
+    });
+    setEventStarted(true);
+    location.reload();
+  }}
+>
+  🚀 Start Event
+</button>
         </>
       )}
     </div>
@@ -332,7 +333,7 @@ if (!eventStarted) {
           <p>{match.country}</p>
           <p>{match.email}</p>
 
-          <button onClick={confirmMeeting}>✅ Confirm meeting</button>
+          <button className="primary-btn" onClick={confirmMeeting}>
           <button onClick={undoMeeting} style={{ marginLeft: 10 }}>↩️ Return</button>
 
           <p style={{ fontSize: 14, opacity: 0.6 }}>
