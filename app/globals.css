@@ -24,3 +24,42 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+button {
+  background-color: #111;
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+/* hover — коли наводять */
+button:hover {
+  background-color: #333;
+  transform: translateY(-1px);
+}
+
+/* active — коли натискають */
+button:active {
+  background-color: #000;
+  transform: translateY(1px);
+}
+
+/* mobile tap highlight */
+button:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.2);
+}
+.primary-btn {
+  background-color: #e11d48;
+}
+
+.primary-btn:hover {
+  background-color: #be123c;
+}
+
+.primary-btn:active {
+  background-color: #9f1239;
+}
