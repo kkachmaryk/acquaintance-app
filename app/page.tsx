@@ -59,7 +59,6 @@ export default function Home() {
   const [nameInput, setNameInput] = useState("");
   const [countryInput, setCountryInput] = useState("");
 
-  // LOAD USERS
   const loadUsers = async () => {
     const snapshot = await getDocs(collection(db, "users"));
     const arr: any[] = [];
@@ -68,18 +67,14 @@ export default function Home() {
     return arr;
   };
 
-  // GENERATE MATCH
   const generateMatch = async (uid: string, metList: string[]) => {
     const freshUsers = await loadUsers();
     const smart = pickSmartMatch(uid, freshUsers, metList);
 
     if (!smart) return null;
 
-    const ref = doc(db, "users", uid);
-
-    await updateDoc(ref, {
+    await updateDoc(doc(db, "users", uid), {
       currentMatch: smart.id,
-      matchHistory: arrayUnion(smart.id),
     });
 
     return smart;
@@ -104,19 +99,16 @@ export default function Home() {
           met: [],
           completed: 0,
           currentMatch: null,
-          matchHistory: [],
         };
         await setDoc(ref, data);
       } else {
         data = snap.data();
-        if (!data.matchHistory) data.matchHistory = [];
       }
 
       setProfile(data);
 
       const allUsers = await loadUsers();
 
-      // EXISTING MATCH
       if (data.currentMatch) {
         const partner = allUsers.find((x) => x.id === data.currentMatch);
         if (partner) {
@@ -130,7 +122,6 @@ export default function Home() {
       if (smart) {
         await updateDoc(ref, {
           currentMatch: smart.id,
-          matchHistory: arrayUnion(smart.id),
         });
       }
 
@@ -164,11 +155,11 @@ export default function Home() {
     setProfile(updated);
   };
 
-  // CONFIRM MEETING
+  // ✅ CONFIRM MEETING
   const confirmMeeting = async () => {
     if (!match) return;
 
-    // guard from double click
+    // guard double click
     if (profile.currentMatch !== match.id) return;
 
     if (!confirm(`Did you REALLY meet ${match.name}?`)) return;
@@ -195,56 +186,44 @@ export default function Home() {
       met: newMet,
       completed: (profile.completed || 0) + 1,
       currentMatch: next?.id || null,
-      matchHistory: next
-        ? [...(profile.matchHistory || []), next.id]
-        : profile.matchHistory,
     });
 
     setMatch(next);
   };
 
-  // UNDO MEETING
+  // 🔁 UNDO MEETING (CORRECT VERSION)
   const undoMeeting = async () => {
-    if (!profile.matchHistory?.length || profile.matchHistory.length < 2) {
-      alert("No previous match");
+    if (!profile.met?.length) {
+      alert("No meeting to undo");
       return;
     }
 
-    const lastMetId = profile.met?.[profile.met.length - 1];
-
-    const previousId =
-      profile.matchHistory[profile.matchHistory.length - 2];
-
-    const previousUser = users.find((u) => u.id === previousId);
+    const lastMetId = profile.met[profile.met.length - 1];
+    const previousUser = users.find((u) => u.id === lastMetId);
 
     const myRef = doc(db, "users", user.uid);
-    const theirRef = lastMetId ? doc(db, "users", lastMetId) : null;
+    const theirRef = doc(db, "users", lastMetId);
 
     await updateDoc(myRef, {
-      currentMatch: previousId,
-      matchHistory: profile.matchHistory.slice(0, -1),
       met: profile.met.slice(0, -1),
       completed: Math.max((profile.completed || 1) - 1, 0),
+      currentMatch: lastMetId,
     });
 
-    if (theirRef) {
-      await updateDoc(theirRef, {
-        met: arrayRemove(user.uid),
-      });
-    }
+    await updateDoc(theirRef, {
+      met: arrayRemove(user.uid),
+    });
 
     setProfile({
       ...profile,
-      currentMatch: previousId,
-      matchHistory: profile.matchHistory.slice(0, -1),
       met: profile.met.slice(0, -1),
       completed: Math.max((profile.completed || 1) - 1, 0),
+      currentMatch: lastMetId,
     });
 
     setMatch(previousUser);
   };
 
-  // LOGIN SCREEN
   if (!user) {
     return (
       <div style={{ padding: 40 }}>
@@ -270,7 +249,6 @@ export default function Home() {
     );
   }
 
-  // FIRST LOGIN
   if (!profile?.name) {
     return (
       <div style={{ padding: 40 }}>
@@ -297,7 +275,6 @@ export default function Home() {
     );
   }
 
-  // MAIN APP
   return (
     <div style={{ padding: 40 }}>
       <Image src="/logo.png" alt="Logo" width={140} height={140} />
