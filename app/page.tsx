@@ -291,15 +291,19 @@ export default function Home() {
             <h3>ADMIN PANEL</h3>
 
             <button
-              onClick={async () => {
-                await setDoc(doc(db, "settings", "event"), {
-                  started: true,
-                });
-                setEventStarted(true);
-              }}
-            >
-              🚀 Start Event
-            </button>
+  onClick={async () => {
+    await setDoc(doc(db, "settings", "event"), {
+      started: true,
+    });
+
+    setEventStarted(true);
+
+    // 🔥 перезавантажити щоб всі логіки спрацювали
+    location.reload();
+  }}
+>
+  🚀 Start Event
+</button>
           </>
         )}
       </div>
