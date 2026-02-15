@@ -277,38 +277,40 @@ export default function Home() {
     );
   }
 
-  // WAITING SCREEN
-  if (!eventStarted) {
-    return (
-      <div style={{ padding: 40 }}>
-        <Image src="/logo.png" alt="Logo" width={140} height={140} />
-        <h2>⏳ Event has not started yet</h2>
-        <p>Please wait for organizer 🙂</p>
+  // WAITING SCREEN (with logout + profile visible)
+if (!eventStarted) {
+  return (
+    <div style={{ padding: 40 }}>
+      <Image src="/logo.png" alt="Logo" width={140} height={140} />
 
-        {user.email === ADMIN_EMAIL && (
-          <>
-            <hr />
-            <h3>ADMIN PANEL</h3>
+      <h2>Welcome, {profile.name}</h2>
+      <p>⏳ Event has not started yet</p>
+      <p>Please wait for organizer 🙂</p>
 
-            <button
-  onClick={async () => {
-    await setDoc(doc(db, "settings", "event"), {
-      started: true,
-    });
+      <button onClick={() => signOut(auth)}>Logout</button>
 
-    setEventStarted(true);
+      {user.email === ADMIN_EMAIL && (
+        <>
+          <hr />
+          <h3>ADMIN PANEL</h3>
 
-    // 🔥 перезавантажити щоб всі логіки спрацювали
-    location.reload();
-  }}
->
-  🚀 Start Event
-</button>
-          </>
-        )}
-      </div>
-    );
-  }
+          <button
+            onClick={async () => {
+              await setDoc(doc(db, "settings", "event"), {
+                started: true,
+              });
+              setEventStarted(true);
+              location.reload();
+            }}
+          >
+            🚀 Start Event
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 
   // MAIN APP
   return (
