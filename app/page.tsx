@@ -330,7 +330,7 @@ export default function Home() {
           <button onClick={undoMeeting} style={{ marginLeft: 10 }}>↩️ Return</button>
 
           <p style={{ fontSize: 13, opacity: 0.6 }}>
-            Matches are personal suggestions — you may not see each other at the same time 🙂
+            Press "Confirm" ONLY after you actually meet 🙂
           </p>
         </div>
       ) : (
