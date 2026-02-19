@@ -17,8 +17,10 @@ import {
   collection,
   getDocs,
   updateDoc,
+  runTransaction,
   arrayUnion,
   arrayRemove,
+  increment,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -172,48 +174,58 @@ export default function Home() {
     setProfile(updated);
   };
 
-  // ⭐ MUTUAL CONFIRM
+  // ⭐ ATOMIC CONFIRM
   const confirmMeeting = async () => {
     if (!match) return;
-    if (profile.currentMatch !== match.id) return;
-
     if (!confirm(`Did you REALLY meet ${match.name}?`)) return;
 
     const myRef = doc(db, "users", user.uid);
     const theirRef = doc(db, "users", match.id);
 
-    const theirSnap = await getDoc(theirRef);
-    const theirData = theirSnap.data();
+    try {
+      await runTransaction(db, async (transaction) => {
+        const mySnap = await transaction.get(myRef);
+        const theirSnap = await transaction.get(theirRef);
 
-    const alreadyMet = (profile.met || []).includes(match.id);
+        if (!mySnap.exists() || !theirSnap.exists()) return;
 
-    if (!alreadyMet) {
-      await updateDoc(myRef, {
-        met: arrayUnion(match.id),
+        const myData = mySnap.data();
+        const theirData = theirSnap.data();
+
+        if ((myData.met || []).includes(match.id)) return;
+
+        if (myData.currentMatch !== match.id) return;
+
+        transaction.update(myRef, {
+          met: arrayUnion(match.id),
+          completed: increment(1),
+          currentMatch: null,
+        });
+
+        transaction.update(theirRef, {
+          met: arrayUnion(user.uid),
+          completed: increment(1),
+        });
+      });
+
+      const newMet = [...(profile.met || []), match.id];
+      const next = await generateMatch(user.uid, newMet);
+
+      setProfile({
+        ...profile,
+        met: newMet,
         completed: (profile.completed || 0) + 1,
-        currentMatch: null,
+        currentMatch: next?.id || null,
       });
 
-      await updateDoc(theirRef, {
-        met: arrayUnion(user.uid),
-        completed: (theirData?.completed || 0) + 1,
-      });
+      setMatch(next);
+
+    } catch (e) {
+      console.error("Transaction failed:", e);
     }
-
-    const newMet = [...(profile.met || []), match.id];
-
-    const next = await generateMatch(user.uid, newMet);
-
-    setProfile({
-      ...profile,
-      met: newMet,
-      completed: (profile.completed || 0) + (alreadyMet ? 0 : 1),
-      currentMatch: next?.id || null,
-    });
-
-    setMatch(next);
   };
 
+  // ⭐ ATOMIC UNDO
   const undoMeeting = async () => {
     if (!profile.met?.length) {
       alert("No meeting to undo");
@@ -221,29 +233,48 @@ export default function Home() {
     }
 
     const lastMetId = profile.met[profile.met.length - 1];
-    const previousUser = users.find((u) => u.id === lastMetId);
-
     const myRef = doc(db, "users", user.uid);
     const theirRef = doc(db, "users", lastMetId);
 
-    await updateDoc(myRef, {
-      met: profile.met.slice(0, -1),
-      completed: Math.max((profile.completed || 1) - 1, 0),
-      currentMatch: lastMetId,
-    });
+    try {
+      await runTransaction(db, async (transaction) => {
+        const mySnap = await transaction.get(myRef);
+        const theirSnap = await transaction.get(theirRef);
 
-    await updateDoc(theirRef, {
-      met: arrayRemove(user.uid),
-    });
+        if (!mySnap.exists() || !theirSnap.exists()) return;
 
-    setProfile({
-      ...profile,
-      met: profile.met.slice(0, -1),
-      completed: Math.max((profile.completed || 1) - 1, 0),
-      currentMatch: lastMetId,
-    });
+        const theirData = theirSnap.data();
 
-    setMatch(previousUser);
+        const theyHaveMe = (theirData.met || []).includes(user.uid);
+
+        transaction.update(myRef, {
+          met: arrayRemove(lastMetId),
+          completed: increment(-1),
+          currentMatch: lastMetId,
+        });
+
+        if (theyHaveMe) {
+          transaction.update(theirRef, {
+            met: arrayRemove(user.uid),
+            completed: increment(-1),
+          });
+        }
+      });
+
+      const previousUser = users.find((u) => u.id === lastMetId);
+
+      setProfile({
+        ...profile,
+        met: profile.met.slice(0, -1),
+        completed: Math.max((profile.completed || 1) - 1, 0),
+        currentMatch: lastMetId,
+      });
+
+      setMatch(previousUser);
+
+    } catch (e) {
+      console.error("Undo transaction failed:", e);
+    }
   };
 
   if (!user) {
